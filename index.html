@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Connections</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #e6e6e6;
+      margin: 0;
+      padding: 30px;
+      text-align: center;
+      overflow-x: hidden;
+    }
+
+    h1 { margin-bottom: 20px; }
+
+    #game {
+      max-width: 700px;
+      margin: auto;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .word {
+      padding: 24px;
+      font-size: 18px;
+      border-radius: 12px;
+      cursor: pointer;
+      background-color: #f5f5f5;
+    }
+
+    .word.selected {
+      background-color: #555;
+      color: white;
+    }
+
+    .group {
+      margin-bottom: 15px;
+      padding: 12px;
+      border-radius: 12px;
+      font-weight: bold;
+      font-size: 18px;
+      text-align: left;
+    }
+
+    .yellow { background:#f9df6d; }
+    .green  { background:#a0c35a; }
+    .blue   { background:#b4c8e1; }
+    .purple { background:#cbb7e2; }
+
+    #controls { margin-top: 20px; }
+
+    #guessBtn {
+      padding: 18px 40px;
+      font-size: 20px;
+      border-radius: 30px;
+      border: none;
+      background-color: #ffcc33;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #message {
+      font-weight: bold;
+      margin-top: 10px;
+      height: 24px;
+    }
+
+    #mistakes { margin-top: 20px; }
+
+    .dot {
+      width: 14px;
+      height: 14px;
+      background-color: black;
+      border-radius: 50%;
+      display: inline-block;
+      margin: 0 5px;
+    }
+
+    .used { background-color: #bbb; }
+
+    /* Confetti */
+    .confetti {
+      position: fixed;
+      width: 10px;
+      height: 10px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    @keyframes confettiFall {
+      0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+      100% { transform: translate(var(--x-move), 110vh) rotate(var(--rotation)); opacity: 0.8; }
+    }
+
+    /* End screen */
+    #endScreen {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      color: white;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 10000;
+      padding: 20px;
+      width: 100%;
+    }
+
+    #endMessage {
+      font-size: 28px;
+      font-weight: bold;
+      margin-bottom: 20px;
+    }
+
+    #shareGrid {
+      margin-top: 20px;
+      font-size: 22px;
+      white-space: pre;
+      text-align: center;
+    }
+
+    #copyBtn {
+      margin-top: 20px;
+      padding: 14px 28px;
+      font-size: 18px;
+      border-radius: 25px;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* Clickable X button, moved further left */
+    #closeX {
+      position: absolute;
+      top: 10px;
+      right: 45px; /* further left to be fully visible */
+      font-size: 50px;
+      font-weight: bold;
+      cursor: pointer;
+      color: white;
+      z-index: 10001;
+    }
+
+    /* View Results button (only shown after game ends) */
+    #viewResultsBtn {
+      display: none;
+      margin-top: 20px;
+      padding: 14px 28px;
+      font-size: 18px;
+      border-radius: 25px;
+      border: none;
+      cursor: pointer;
+      background-color: #33ccff;
+      font-weight: bold;
+    }
+
+  </style>
+</head>
+
+<body>
+
+<h1>Connections</h1>
+
+<div id="game">
+  <div id="groups"></div>
+  <div id="grid"></div>
+
+  <div id="controls">
+    <button id="guessBtn" onclick="submitGuess()">Guess</button>
+    <div id="message"></div>
+  </div>
+
+  <div id="mistakes"></div>
+  <button id="viewResultsBtn" onclick="openCopyScreen()">View Results</button>
+</div>
+
+<div id="endScreen">
+  <div id="closeX" onclick="closeCopyScreen()">✖</div>
+  <div id="endMessage"></div>
+  <pre id="shareGrid"></pre>
+  <button id="copyBtn" onclick="copyResults()">Copy Results</button>
+</div>
+
+<script>
+  const groups = [
+    { name:"Fruits",  words:["Apple","Banana","Orange","Grape"], color:"yellow", found:false },
+    { name:"Colors",  words:["Red","Blue","Green","Yellow"], color:"green", found:false },
+    { name:"Animals", words:["Dog","Cat","Horse","Cow"], color:"blue", found:false },
+    { name:"Shapes",  words:["Circle","Square","Triangle","Oval"], color:"purple", found:false }
+  ];
+
+  const emojiMap = {
+    yellow: "🟨",
+    green: "🟩",
+    blue: "🟦",
+    purple: "🟪"
+  };
+
+  let words = groups.flatMap(g=>g.words).sort(()=>Math.random()-0.5);
+  let selected = [];
+  let mistakes = 0;
+  let guessHistory = [];
+  const maxMistakes = 4;
+
+  const grid = document.getElementById("grid");
+  const groupsDiv = document.getElementById("groups");
+  const message = document.getElementById("message");
+  const mistakesDiv = document.getElementById("mistakes");
+  const endScreen = document.getElementById("endScreen");
+  const endMessage = document.getElementById("endMessage");
+  const viewResultsBtn = document.getElementById("viewResultsBtn");
+
+  function renderGrid() {
+    grid.innerHTML = "";
+    words.forEach(word => {
+      const btn = document.createElement("button");
+      btn.textContent = word;
+      btn.className = "word";
+      btn.onclick = () => toggle(word, btn);
+      grid.appendChild(btn);
+    });
+    renderMistakes();
+  }
+
+  function toggle(word, btn) {
+    if (selected.includes(word)) {
+      selected = selected.filter(w=>w!==word);
+      btn.classList.remove("selected");
+    } else if (selected.length < 4) {
+      selected.push(word);
+      btn.classList.add("selected");
+      message.textContent = "";
+    }
+  }
+
+  function submitGuess() {
+    if (selected.length !== 4) return;
+
+    const emojiRow = selected.map(word => {
+      const g = groups.find(grp => grp.words.includes(word));
+      return emojiMap[g.color];
+    }).join("");
+
+    if (guessHistory.includes(emojiRow)) {
+      message.textContent = "Already guessed!";
+      selected = [];
+      renderGrid();
+      return;
+    }
+
+    let foundGroup = false;
+
+    for (let g of groups) {
+      if (!g.found) {
+        const matches = selected.filter(w=>g.words.includes(w)).length;
+
+        if (matches === 4) {
+          solveGroup(g);
+          message.textContent = "Correct!";
+          foundGroup = true;
+          break;
+        }
+
+        if (matches === 3) {
+          mistakes++;
+          guessHistory.push(emojiRow);
+          message.textContent = "One away!";
+          selected = [];
+          renderGrid();
+          foundGroup = true;
+          break;
+        }
+      }
+    }
+
+    if (!foundGroup) {
+      mistakes++;
+      guessHistory.push(emojiRow);
+      message.textContent = "Incorrect!";
+      selected = [];
+      renderGrid();
+    }
+
+    if (groups.every(g=>g.found) || mistakes >= maxMistakes) {
+      revealAllGroups(mistakes < maxMistakes);
+    }
+  }
+
+  function solveGroup(group) {
+    group.found = true;
+    words = words.filter(w=>!group.words.includes(w));
+
+    const row = document.createElement("div");
+    row.className = `group ${group.color}`;
+    row.textContent = `${group.name}: ${group.words.join(", ")}`;
+    groupsDiv.appendChild(row);
+
+    guessHistory.push(emojiMap[group.color].repeat(4));
+
+    selected = [];
+    renderGrid();
+    checkWin();
+  }
+
+  function revealAllGroups(isWin = true) {
+    for (let g of groups) {
+      if (!g.found) {
+        g.found = true;
+        words = words.filter(w=>!g.words.includes(w));
+
+        const row = document.createElement("div");
+        row.className = `group ${g.color}`;
+        row.textContent = `${g.name}: ${g.words.join(", ")}`;
+        groupsDiv.appendChild(row);
+
+        if (isWin) guessHistory.push(emojiMap[g.color].repeat(4));
+      }
+    }
+    renderGrid();
+    showEndScreen(isWin ? "🎉 Congratulations! 🎉" : "Better luck next time!", isWin);
+  }
+
+  function checkWin() {
+    if (groups.every(g=>g.found)) {
+      revealAllGroups(true);
+    }
+  }
+
+  function renderMistakes() {
+    mistakesDiv.innerHTML = "Mistakes remaining: ";
+    for (let i=0;i<maxMistakes;i++) {
+      const dot = document.createElement("span");
+      dot.className = "dot" + (i < mistakes ? " used" : "");
+      mistakesDiv.appendChild(dot);
+    }
+  }
+
+  function showEndScreen(messageText, isWin) {
+    endMessage.textContent = messageText;
+    document.getElementById("shareGrid").textContent = guessHistory.join("\n");
+    endScreen.style.display = "flex";
+    viewResultsBtn.style.display = "inline-block"; // show view results button
+    if (isWin) launchConfetti();
+  }
+
+  function openCopyScreen() {
+    endScreen.style.display = "flex";
+  }
+
+  function closeCopyScreen() {
+    endScreen.style.display = "none";
+  }
+
+  function copyResults() {
+    navigator.clipboard.writeText(
+      document.getElementById("shareGrid").textContent
+    );
+    alert("Copied!");
+  }
+
+  /* Confetti */
+  function launchConfetti() {
+    for (let i = 0; i < 220; i++) {
+      const c = document.createElement("div");
+      c.className = "confetti";
+
+      const size = 6 + Math.random() * 10;
+      c.style.width = size + "px";
+      c.style.height = size + "px";
+
+      c.style.left = Math.random() * window.innerWidth + "px";
+      c.style.top = Math.random() * -300 + "px";
+
+      c.style.backgroundColor = `hsl(${Math.random() * 360},100%,50%)`;
+
+      const xMove = (Math.random() * 300 - 150) + "px";
+      const rotation = (Math.random() * 1080 - 540) + "deg";
+      const duration = 4 + Math.random() * 3;
+
+      c.style.setProperty("--x-move", xMove);
+      c.style.setProperty("--rotation", rotation);
+      c.style.animation = `confettiFall ${duration}s ease-out forwards`;
+
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), duration * 1000);
+    }
+  }
+
+  renderGrid();
+</script>
+
+</body>
+</html>
